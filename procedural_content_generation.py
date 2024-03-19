@@ -5,33 +5,6 @@ import math
 from mathutils import Matrix, Vector, Euler
 
 
-def create_sphere(bm, center, radius, num_verts_theta=32, num_verts_phi=16):
-    verts = []
-    for i in range(num_verts_theta):
-        theta = math.pi * i / (num_verts_theta - 1)
-        for j in range(num_verts_phi):
-            phi = 2 * math.pi * j / num_verts_phi
-            x = center[0] + radius * math.sin(theta) * math.cos(phi)
-            y = center[1] + radius * math.sin(theta) * math.sin(phi)
-            z = center[2] + radius * math.cos(theta)
-            vert = bm.verts.new((x, y, z))
-            verts.append(vert)
-    return verts
-
-def create_faces(bm, verts, num_verts_theta, num_verts_phi):
-    for i in range(len(verts) - num_verts_phi):
-        if (i + 1) % num_verts_phi == 0:
-            continue
-        v1 = verts[i]
-        v2 = verts[i + 1]
-        v3 = verts[i + num_verts_phi]
-        v4 = verts[i + num_verts_phi + 1]
-        bm.faces.new([v1, v2, v4, v3])
-        
-    # Closing the sphere
-    bm.faces.new(verts[:num_verts_phi])
-    bm.faces.new(verts[-num_verts_phi:][::-1])
-
 def create_ring(bm, center, radius, num_verts=100):
     verts = []
     for i in range(num_verts):
@@ -69,6 +42,93 @@ def bridge_rings(bm, verts_a, verts_b):
         # Create faces using triangles
         bm.faces.new([v1, v2, v3])
         bm.faces.new([v2, v3, v4])
+
+def create_head_ring(bm, center, ring_radius, ellipsoid_radius, num_verts):
+    verts = []
+    for i in range(num_verts):
+        angle = 2 * pi * i / num_verts
+        x = center[0] + ellipsoid_radius * cos(angle)
+        y = center[1] + ring_radius * sin(angle)
+        z = center[2]
+        vert = bm.verts.new((x, y, z))
+        verts.append(vert)
+    return verts
+
+def head_bridge_rings(bm, verts_a, verts_b):
+    for i in range(len(verts_a)):
+        v1 = verts_a[i]
+        v2 = verts_a[(i + 1) % len(verts_a)]
+        v3 = verts_b[i]
+        v4 = verts_b[(i + 1) % len(verts_b)]
+        face_verts = [v1, v2, v4, v3]
+        bm.faces.new(face_verts)
+
+def create_head(bm, center, radii, num_segments=200, num_rings=100):
+    # Create vertex rings for the ellipsoid
+    for i in range(num_rings + 1):
+        z_angle = pi * i / num_rings
+        z = center[2] + cos(z_angle) * radii[2]
+        ring_radius = sin(z_angle) * radii[1]
+
+        # Adjust the number of segments towards the top for a smoother curve
+        if i < num_rings * 0.25:
+            num_segments_top = num_segments
+        else:
+            num_segments_top = int(num_segments * 1.5)
+
+        verts = []
+        for j in range(num_segments_top):
+            angle = 2 * pi * j / num_segments
+            x = center[0] + radii[0] * cos(angle)
+
+            # Adjust the y-coordinate for the top vertices to create a rounded shape
+            y = center[1] + ring_radius * sin(angle) * 1.2  # Adjust this factor for desired roundness
+
+            vert = bm.verts.new((x, y, z))
+            verts.append(vert)
+
+        if i > 0:
+            head_bridge_rings(bm, prev_verts, verts)
+        prev_verts = verts
+
+
+def create_head_mesh():
+    # Create a new mesh
+    mesh = bpy.data.meshes.new("HeadMesh")
+    bm = bmesh.new()
+
+    # Define the center and radii of the head
+    center = (0, 0, 0)
+    radii = (0.5, 1.5, 0.5)  # a, b, and c from your image
+
+    # Create the head mesh using the defined parameters
+    create_head(bm, center, radii)
+
+    # Assign the mesh data to the bmesh
+    bm.to_mesh(mesh)
+    bm.free()
+
+    return mesh
+
+# Function to create the head object and attach it to the body
+def create_and_attach_head(body_obj, neck_length):
+    # Check if the 'Head' object already exists in the scene collection
+    head_obj = bpy.data.objects.get("Head")
+
+    if head_obj is None:
+        # Create the head mesh only if it doesn't exist
+        head_mesh = create_head_mesh()
+        head_obj = bpy.data.objects.new("Head", head_mesh)
+        bpy.context.collection.objects.link(head_obj)
+
+    # Position the head object at the end of the neck
+    head_tip_position = Vector((neck_length, 0, 0))
+    head_obj.location = body_obj.location + body_obj.matrix_world @ head_tip_position
+
+    # Make the head the child of the body
+    head_obj.parent = body_obj
+
+    return head_obj
 
 def create_body(length, start_radius, max_radius, wave_amplitude, wave_frequency, num_verts=100):
     # Create a new mesh
@@ -304,84 +364,23 @@ def visualize_leg_points(body_obj, leg_distance=0.5, leg_height=0.5, thigh_heigh
 
     return attachment_points
 
-def create_head(center, radius, scale_x=1.0, scale_y=1.0, scale_z=1.0, num_verts_theta=100, num_verts_phi=100):
-    # Apply scaling to the radius
-    scaled_radius_x = radius * scale_x
-    scaled_radius_y = radius * scale_y
-    scaled_radius_z = radius * scale_z
-
-    # Create a new mesh and bmesh
-    mesh = bpy.data.meshes.new("Head")
-    bm = bmesh.new()
-
-    # Create sphere vertices
-    verts = create_sphere(bm, center, radius, num_verts_theta, num_verts_phi)
-
-    # Apply scaling to the vertices
-    for v in verts:
-        v.co.x *= scale_x
-        v.co.y *= scale_y
-        v.co.z *= scale_z
-
-    # Create sphere faces
-    create_faces(bm, verts, num_verts_theta, num_verts_phi)
-
-    # Update the bmesh and create the mesh
-    bm.to_mesh(mesh)
-    mesh.update()
-
-    # Link the mesh to a new object
-    obj = bpy.data.objects.new("Head_Object", mesh)
-    bpy.context.collection.objects.link(obj)
-
-    return obj
-
-
 if __name__ == "__main__":
-    
-    body_height = 0.0
-
+    # Create body, neck, and tail
+    body_length = 10.0
     body_obj, top_center, bottom_center, last_center, top_radius = create_body(
-        length=15.0, start_radius=1.9, max_radius=1.5, wave_amplitude=0.3, wave_frequency=20, num_verts=100
+        length=10.0, start_radius=0.5, max_radius=1.5, wave_amplitude=0.3, wave_frequency=50, num_verts=100
     )
     
-    body_dimensions = body_obj.dimensions
-    body_length = body_dimensions[0]
-    top_center = (body_length, 0, 0)
-    
-    print(body_length)
-
-    # Create tail
-    tail_obj = create_tail(
-        start_center=bottom_center, 
-        start_radius=top_radius, 
-        length=2.0, 
-        tip_radius=0.01, 
-        wave_amplitude=0.2, 
-        wave_frequency=50, 
-        num_verts=100
-    )
-    # Make tail the child of the body
-    tail_obj.parent = body_obj
-    
-    # Create neck
+    neck_length = 3.5
     neck_obj = create_neck(
-        start_center=top_center, 
-        start_radius=top_radius, 
-        length=1.5, 
-        end_radius=0.2, 
-        orientation='x', 
-        wave_amplitude=0.1, 
-        wave_frequency=15, 
-        num_verts=100
+        start_center=top_center, start_radius=top_radius, length=3.5, end_radius=0.2, orientation='x', 
+        wave_amplitude=0.1, wave_frequency=60, num_verts=100
     )
-    
-    neck_dimensions = neck_obj.dimensions
-    neck_length = neck_dimensions[0] # Length of the neck segment
-    neck_position = Vector(top_center) + Vector((neck_length, 0, 0))
-    print('n', neck_position)
-    # Make neck the child of the body
-    neck_obj.parent = body_obj
+
+    tail_obj = create_tail(
+        start_center=bottom_center, start_radius=top_radius, length=5.0, tip_radius=0.01, wave_amplitude=0.2, 
+        wave_frequency=50, num_verts=100
+    )
     
     thigh_height = 1.5  # Height of the thigh segment of the legs
     shin_height = 5.0   # Height of the shin segment of the legs
@@ -393,23 +392,16 @@ if __name__ == "__main__":
     leg_height = 0.0
 
     attachment_points = visualize_leg_points(body_obj, leg_distance=leg_distance, leg_height=0.1, thigh_height=thigh_height, shin_height=shin_height, foot_height=foot_height, thigh_radius=thigh_radius, shin_radius=shin_radius, foot_radius=foot_radius)
-    
-    head_radius = 4.5  # Assuming uniform scaling along all axes
-    head_position = neck_obj.matrix_world @ Vector(( neck_position[0], 0, 0))
-    print(head_position)
 
-    # Calculate the radius of the head based on some predetermined value
-     # You can adjust this value as needed
+    # Attach head to the body
+    head_obj = create_and_attach_head(body_obj, body_length+neck_length)
 
-    # Call the create_head function to create the head object
-    head_obj = create_head(head_position, head_radius, scale_x=1.2, scale_y=1.5, scale_z=1.0)
-        
-    body_obj.rotation_euler = (radians(-90), 0, 0)
-    neck_obj.rotation_euler = (radians(90), 0, 0)
-    tail_obj.rotation_euler = (radians(-180), 0, 0)
-    head_obj.rotation_euler = (radians(-90), 0, 0)
+    # Rotate objects as needed
+    body_obj.rotation_euler = (math.radians(-90), 0, 0)
+    neck_obj.rotation_euler = (math.radians(90), 0, 0)
+    tail_obj.rotation_euler = (math.radians(-180), 0, 0)
+    head_obj.rotation_euler = (0, 0, math.radians(90))
     
-    
-    # Rotate the entire object by -90 degrees on the x-axis
     bpy.context.view_layer.objects.active = body_obj
     bpy.ops.transform.rotate(value=-math.radians(90), orient_axis='X')
+
