@@ -6,11 +6,14 @@ from mathutils import Matrix, Vector, Euler
 import os
 from scipy.spatial import Delaunay
 
+'''Generate a series of rings for the triangles to connect. The main anchor for the mesh generation.'''
+
 def create_ring(bm, center, radius, num_verts=100):
     verts = []
+    #Loop to generate a series of connection points for the triangles.
     for i in range(num_verts):
         angle = 2 * pi * i / num_verts
-        # Swap y and z for the new orientation along the x-axis
+        #Location where the rings are generated
         y = center[1] + radius * cos(angle)
         z = center[2] + radius * sin(angle)
         x = center[0]
@@ -18,8 +21,10 @@ def create_ring(bm, center, radius, num_verts=100):
         verts.append(vert)
     return verts
 
+''' Generate a series for rings for the legs as it requires different set of parameters for the leg generation'''
 def create_leg_ring(bm, center, radius, num_verts=100):
     verts = []
+    #Loop to generate a series of connection points for the triangles.
     for i in range(num_verts):
         angle = 2 * pi * i / num_verts
         x = center[0] + radius * cos(angle)
@@ -29,23 +34,30 @@ def create_leg_ring(bm, center, radius, num_verts=100):
         verts.append(vert)
     return verts
 
-
+'''Generate the triangle and its faces with the rings to generate a shape'''
 def bridge_rings(bm, verts_a, verts_b):
+    #Checks if the vertices are of equal weight.
     if len(verts_a) != len(verts_b):
         return
-    
+    '''Loops to connect the triangles based on the weight of each vertices and takes into consideration and swaps the vertices
+    if the weight do not match.'''
     for i in range(len(verts_a)):
         v1 = verts_a[i]
         v2 = verts_a[(i + 1) % len(verts_a)]
         v3 = verts_b[i]
         v4 = verts_b[(i + 1) % len(verts_b)]
         
-        # Create faces using triangles
+        '''The process of triangulation and generates a series of triangles( i.e. three vertices for triangles, change this for
+        different polygons'''
         bm.faces.new([v1, v2, v3])
         bm.faces.new([v2, v3, v4])
+    
+'''Generate rings for the head. A seperate function for the head as the logic behind creating a head requires more consideration
+due to different mathematical factors '''
 
 def create_head_ring(bm, center, ring_radius, ellipsoid_radius, num_verts):
     verts = []
+    #Similar to create_ring function but with two additional parameter to consider due to the hade shape being slighlty different.
     for i in range(num_verts):
         angle = 2 * pi * i / num_verts
         x = center[0] + ellipsoid_radius * cos(angle)
@@ -55,6 +67,7 @@ def create_head_ring(bm, center, ring_radius, ellipsoid_radius, num_verts):
         verts.append(vert)
     return verts
 
+'''Generate a series of triangles to connect each of the triangles generated based on the parameters'''
 def head_bridge_rings(bm, verts_a, verts_b):
     for i in range(len(verts_a)):
         v1 = verts_a[i]
@@ -64,6 +77,9 @@ def head_bridge_rings(bm, verts_a, verts_b):
         face_verts = [v1, v2, v4, v3]
         bm.faces.new(face_verts)
 
+'''Logical algorithm for the generation of head after the triangles are generated. 
+The head usually is an ellipsoid shape so the generation of head at the start generates a simple ellipsoid shape but changes with
+parameters provided by the user to give a more organic head.'''
 def create_head(bm, center, radii, num_segments=200, num_rings=100):
     # Create vertex rings for the ellipsoid
     for i in range(num_rings + 1):
@@ -71,13 +87,14 @@ def create_head(bm, center, radii, num_segments=200, num_rings=100):
         z = center[2] + cos(z_angle) * radii[2]
         ring_radius = sin(z_angle) * radii[1]
 
-        # Adjust the number of segments towards the top for a smoother curve
+        # A logical statement that provides a smooth curve by adjusting the num_segments at the top.
         if i < num_rings * 0.25:
             num_segments_top = num_segments
         else:
             num_segments_top = int(num_segments * 1.5)
 
         verts = []
+        # Loops over to generate the head by adjusting the shape and othedr factors of the head.
         for j in range(num_segments_top):
             angle = 2 * pi * j / num_segments
             x = center[0] + radii[0] * cos(angle)
@@ -87,12 +104,12 @@ def create_head(bm, center, radii, num_segments=200, num_rings=100):
 
             vert = bm.verts.new((x, y, z))
             verts.append(vert)
-
+        #Checks to see if the num_rings is not 0. If it is, the generation of triangles fails.
         if i > 0:
             head_bridge_rings(bm, prev_verts, verts)
         prev_verts = verts
 
-
+'''Properties and parameters for the head shape and assigning an empty mesh to the head.'''
 def create_head_mesh():
     # Create a new mesh
     mesh = bpy.data.meshes.new("HeadMesh")
@@ -100,7 +117,7 @@ def create_head_mesh():
 
     # Define the center and radii of the head
     center = (0, 0, 0)
-    radii = (0.5, 1.5, 0.5)  # a, b, and c from your image
+    radii = (0.5, 1.5, 0.5)  # a, b, and c values of the radius
 
     # Create the head mesh using the defined parameters
     create_head(bm, center, radii)
@@ -111,7 +128,7 @@ def create_head_mesh():
 
     return mesh
 
-# Function to create the head object and attach it to the body
+'''Attach the head mesh to the body'''
 def create_and_attach_head(body_obj, neck_length):
     # Check if the 'Head' object already exists in the scene collection
     head_obj = bpy.data.objects.get("Head")
@@ -126,11 +143,12 @@ def create_and_attach_head(body_obj, neck_length):
     head_tip_position = Vector((neck_length, 0, 0))
     head_obj.location = body_obj.location + body_obj.matrix_world @ head_tip_position
 
-    # Make the head the child of the body
+    # Head becomes the child of the parent i.e. body
     head_obj.parent = body_obj
 
     return head_obj
 
+'''Generate the body mesh based on the parameters'''
 def create_body(length, start_radius, max_radius, wave_amplitude, wave_frequency, num_verts=100):
     # Create a new mesh
     mesh = bpy.data.meshes.new("BodyMesh")
@@ -144,6 +162,7 @@ def create_body(length, start_radius, max_radius, wave_amplitude, wave_frequency
     last_radius = start_radius
     top_center = (length, 0, 0)
     bottom_center = (0, 0, 0)
+    #Loop to generate the body mesh after the parameters are provided by the user.
     for i in range(steps + 1):
         radius = start_radius + (max_radius - start_radius) * abs(sin(pi * i / steps))
         wave_y = wave_amplitude * sin(i / wave_frequency * 2 * pi)
@@ -162,14 +181,15 @@ def create_body(length, start_radius, max_radius, wave_amplitude, wave_frequency
     bm.to_mesh(mesh)
     bm.free()
 
-    # Create a new object and link it to the scene
+    # Create a new body object and link it to the scene
     obj = bpy.data.objects.new("Body", mesh)
     bpy.context.collection.objects.link(obj)
 
     # Return the object
     return obj, top_center, bottom_center, last_center, last_radius
 
-def create_tail(start_center, start_radius, length, tip_radius, wave_amplitude, wave_frequency, num_verts=100):
+'''Generate the tail for the creature based on the parameters provided'''
+def create_tail(body_obj, start_center, start_radius, length, tip_radius, wave_amplitude, wave_frequency, num_verts=100):
     # Create a new mesh
     mesh = bpy.data.meshes.new("TailMesh")
     bm = bmesh.new()
@@ -178,6 +198,7 @@ def create_tail(start_center, start_radius, length, tip_radius, wave_amplitude, 
     steps = num_verts
 
     prev_ring_verts = None
+    #Loop to generate the tail mesh after the parameters are provided by the user.
     for i in range(steps + 1):
         radius = start_radius - (start_radius - tip_radius) * (i / steps)
         wave_x = wave_amplitude * sin(i / wave_frequency * 2 * pi)
@@ -194,14 +215,16 @@ def create_tail(start_center, start_radius, length, tip_radius, wave_amplitude, 
     bm.to_mesh(mesh)
     bm.free()
 
-    # Create a new object and link it to the scene
+    # Create a new tail object and link it to the scene
     obj = bpy.data.objects.new("Tail", mesh)
     bpy.context.collection.objects.link(obj)
+    obj.parent = body_obj
 
     # Return the object
     return obj
 
-def create_neck(start_center, start_radius, length, end_radius, orientation='x', wave_amplitude=0.3, wave_frequency=30, num_verts=100):
+'''Generate the neck for the creature based on the parameters provided'''
+def create_neck(body_obj, start_center, start_radius, length, end_radius, orientation='x', wave_amplitude=0.3, wave_frequency=30, num_verts=100):
     # Create a new mesh
     mesh = bpy.data.meshes.new("NeckMesh")
     bm = bmesh.new()
@@ -210,6 +233,7 @@ def create_neck(start_center, start_radius, length, end_radius, orientation='x',
     steps = num_verts
 
     prev_ring_verts = None
+    #Loop to generate the tail mesh after the parameters are provided by the user.
     for i in range(steps + 1):
         radius = start_radius + (end_radius - start_radius) * (i / steps)
         wave_offset = wave_amplitude * math.sin(i / steps * math.pi * 2)
@@ -229,6 +253,7 @@ def create_neck(start_center, start_radius, length, end_radius, orientation='x',
     # Create a new object and link it to the scene
     obj = bpy.data.objects.new("Neck", mesh)
     bpy.context.collection.objects.link(obj)
+    obj.parent = body_obj
 
     # Rotate the neck along the Z-axis if necessary
     if orientation == 'x':
@@ -237,6 +262,8 @@ def create_neck(start_center, start_radius, length, end_radius, orientation='x',
     # Return the object
     return obj
 
+'''Generate the neck for the creature based on the parameters provided. Legs have additional parameters due to the 
+nature of the leg as it has more elements'''
 def create_leg(start_point, end_point, radius, thigh_height, shin_height, foot_height, thigh_radius, shin_radius, foot_radius, num_segments=20):
     # Create a new mesh and object
     mesh = bpy.data.meshes.new("AnimalLeg")
@@ -292,21 +319,11 @@ def create_leg(start_point, end_point, radius, thigh_height, shin_height, foot_h
 
     return obj
 
+'''Visualizae the points in the body where the legs will be placed. A simple logic has been applied to position the legs at certain points
+in the body. '''
 def visualize_leg_points(body_obj, leg_distance=0.5, leg_height=0.5, thigh_height=1.5, shin_height=1.0, foot_height=0.5, thigh_radius=0.2, shin_radius=0.2, foot_radius=0.1):
-    """
-    Visualizes leg attachment points on the body for both positive and negative z-axis positions.
     
-    :param body_obj: The Blender object representing the body.
-    :param leg_distance: Distance of the legs from the body's central axis along the Z-axis.
-    :param leg_height: Height of the legs from the ground level.
-    :param thigh_height: Height of the thigh segment of the legs.
-    :param shin_height: Height of the shin segment of the legs.
-    :param foot_height: Height of the foot segment of the legs.
-    :param thigh_radius: Radius of the thigh segment of the legs.
-    :param shin_radius: Radius of the shin segment of the legs.
-    :param foot_radius: Radius of the foot segment of the legs.
-    :return: A list of attachment points for the legs.
-    """
+    # Takes in the attachment points as an array and each leg takes in one of the values from the array to position itself.
     attachment_points = []
 
     if body_obj is None:
@@ -335,6 +352,7 @@ def visualize_leg_points(body_obj, leg_distance=0.5, leg_height=0.5, thigh_heigh
 
         # Position leg
         leg_obj.location = Vector((top_leg_x, 0, z_offset))
+   
 
         attachment_points.append(leg_obj.location)
     
@@ -351,7 +369,7 @@ def visualize_leg_points(body_obj, leg_distance=0.5, leg_height=0.5, thigh_heigh
         leg_name = f"Leg_{i+3}_{'Top' if i == 0 else 'Bottom'}"  # Example: Leg_3_Top
         leg_obj = create_leg(Vector((bottom_leg_x, 0, z_offset)), Vector((bottom_leg_x, 0, z_offset - leg_height)), radius=0.1, thigh_height=thigh_height, shin_height=shin_height, foot_height=foot_height, thigh_radius=thigh_radius, shin_radius=shin_radius, foot_radius=foot_radius)
         leg_obj.name = leg_name  # Assign unique name to the leg object
-
+        
         # Position leg
         leg_obj.location = Vector((bottom_leg_x, 0, z_offset))
 
@@ -362,8 +380,10 @@ def visualize_leg_points(body_obj, leg_distance=0.5, leg_height=0.5, thigh_heigh
             leg_obj.rotation_euler = (math.radians(180), 0, math.radians(90))
         elif i == 0:
             leg_obj.rotation_euler = (0, 0, math.radians(90))
-
+        
     return attachment_points
+
+'''Generate the wings for the creature based on the parameters provided by the user.'''
 
 def create_wing(base_center, wing_length, wing_thickness, start_width, end_width, num_verts_length=20, num_verts_width=10):
     bm = bmesh.new()
@@ -411,18 +431,11 @@ def create_wing(base_center, wing_length, wing_thickness, start_width, end_width
     # Return the object
     return obj
 
+'''Visualizae the points in the body where the wings will be placed. A simple logic has been applied to position the wings at the center
+of the body. '''
 
 def visualize_wing_points(body_obj, wing_distance=0.1, wing_height=1.0, wing_length=20.0, wing_thickness=0.1, start_width=2.0, end_width=1.0):
-    """
-    Visualizes wing attachment points on the body.
     
-    :param body_obj: The Blender object representing the body.
-    :param wing_distance: Distance of the wings from the body's central axis along the Y-axis.
-    :param wing_height: Height of the wings from the ground level.
-    :param wing_length: Length of the wings.
-    :param wing_thickness: Thickness of the wings.
-    :return: A list of attachment points for the wings.
-    """
     attachment_points = []
 
     if body_obj is None:
@@ -464,8 +477,11 @@ def visualize_wing_points(body_obj, wing_distance=0.1, wing_height=1.0, wing_len
     return attachment_points
 
 
-
-def create_painted_texture_material(image_path):
+'''Applying texture to the mesh by the image provided by the user and adjust the size, shape, color and other factos based on the image nodes'''
+def create_painted_texture_material(image_path, tex_coord_location=(-600, 0),
+                                    image_texture_location=(-400, 0),
+                                    mapping_location=(-200, 0),
+                                    output_location=(200, 0)):
     # Create a new material
     material = bpy.data.materials.new(name="PaintedTextureMaterial")
     material.use_nodes = True
@@ -476,16 +492,19 @@ def create_painted_texture_material(image_path):
 
     # Create texture coordinate node
     tex_coord_node = nodes.new(type='ShaderNodeTexCoord')
-    tex_coord_node.location = (-600, 0)
+    tex_coord_node.location = tex_coord_location
 
     # Create image texture node
     image_texture_node = nodes.new(type='ShaderNodeTexImage')
-    image_texture_node.location = (-400, 0)
-    image_texture_node.image = bpy.data.images.load(image_path)  # Load the image from file
+    image_texture_node.location = image_texture_location
+    try:
+        image_texture_node.image = bpy.data.images.load(image_path)  # Load the image from file
+    except:
+        print("Failed to load image:", image_path)
 
     # Create mapping node to adjust texture coordinates
     mapping_node = nodes.new(type='ShaderNodeMapping')
-    mapping_node.location = (-200, 0)
+    mapping_node.location = mapping_location
     mapping_node.inputs['Scale'].default_value = (0.1, 0.1, 0.1)  # Adjust scale as needed
 
     # Create texture coordinate mapping
@@ -494,12 +513,13 @@ def create_painted_texture_material(image_path):
 
     # Create output node
     output_node = nodes.new(type='ShaderNodeOutputMaterial')
-    output_node.location = (200, 0)
+    output_node.location = output_location
     material.node_tree.links.new(image_texture_node.outputs['Color'], output_node.inputs['Surface'])
 
     return material
 
-
+'''Assigning the materail to the creature and checks if the materials has been assigned properly. Also replaces the materials
+if it is alread assigned with the new material'''
 def assign_material_to_objects(material):
     for obj in bpy.context.scene.objects:
         if obj.type == 'MESH':
@@ -510,6 +530,7 @@ def assign_material_to_objects(material):
                 # If the object has no materials assigned, append the new material to its material slots
                 obj.data.materials.append(material)
 
+'''Class for different properties of the body and the default value and minimum values assigned.'''
 class CreatureProperties(bpy.types.PropertyGroup):
     # Body Properties
     body_length: bpy.props.FloatProperty(name="Length", default=10.0, min=0.0)
@@ -561,7 +582,7 @@ class CreatureProperties(bpy.types.PropertyGroup):
     material_path: bpy.props.StringProperty(name="Material Path", default="", subtype='FILE_PATH')
 
 
-# Define the panel to display the creature properties
+''' Define the panel to display the creature properties. The panel is generated in the blender scene below the view tab.'''
 class CreaturePropertiesPanel(bpy.types.Panel):
     bl_label = "Creature Properties"
     bl_idname = "VIEW3D_PT_CreaturePropertiesPanel"
@@ -628,7 +649,8 @@ class CreaturePropertiesPanel(bpy.types.Panel):
 
         layout.operator("object.generate_creature", text="Generate Creature")
 
-
+'''Anchor to take in all the values provided by the user. Assigned to the generate creature button and onclick generates the creatures
+based on the values of the user.'''
 class OBJECT_OT_GenerateCreature(bpy.types.Operator):
     bl_idname = "object.generate_creature"
     bl_label = "Generate Creature"
@@ -653,7 +675,7 @@ class OBJECT_OT_GenerateCreature(bpy.types.Operator):
             num_verts=props.body_num_verts
         )
         
-        neck_obj = create_neck(
+        neck_obj = create_neck(body_obj,
             start_center=top_center,
             start_radius=top_radius,
             length=props.neck_length,
@@ -664,7 +686,7 @@ class OBJECT_OT_GenerateCreature(bpy.types.Operator):
             num_verts=props.neck_num_verts
         )
 
-        tail_obj = create_tail(
+        tail_obj = create_tail(body_obj,
             start_center=bottom_center,
             start_radius=top_radius,
             length=props.tail_length,
@@ -728,20 +750,22 @@ class OBJECT_OT_GenerateCreature(bpy.types.Operator):
             print("Material creation failed or material path is invalid.")
 
         return {'FINISHED'}
-    
-# Register the PropertyGroup and Panel classes
+
+''' Register the PropertyGroup and Panel classes to the Blender scene'''
 def register():
     bpy.utils.register_class(CreatureProperties)
     bpy.utils.register_class(CreaturePropertiesPanel)
     bpy.utils.register_class(OBJECT_OT_GenerateCreature)
     bpy.types.Scene.creature_properties = bpy.props.PointerProperty(type=CreatureProperties)
 
+'''Unregisters the previous properties and appends it with new one in case there are changes to the properties and panel class'''
 def unregister():
     bpy.utils.unregister_class(CreatureProperties)
     bpy.utils.unregister_class(CreaturePropertiesPanel)
     bpy.utils.unregister_class(OBJECT_OT_GenerateCreature)
     del bpy.types.Scene.creature_properties
-    
+
+'''Main function to run the script.'''
 if __name__ == "__main__":
         
     register()
