@@ -4,7 +4,6 @@ from math import cos, sin, pi, radians, sqrt, acos, atan2
 import math
 from mathutils import Matrix, Vector, Euler
 import os
-from scipy.spatial import Delaunay
 
 '''Generate a series of rings for the triangles to connect. The main anchor for the mesh generation.'''
 
@@ -110,17 +109,16 @@ def create_head(bm, center, radii, num_segments=200, num_rings=100):
         prev_verts = verts
 
 '''Properties and parameters for the head shape and assigning an empty mesh to the head.'''
-def create_head_mesh():
+def create_head_mesh(head_radii):
     # Create a new mesh
     mesh = bpy.data.meshes.new("HeadMesh")
     bm = bmesh.new()
 
     # Define the center and radii of the head
     center = (0, 0, 0)
-    radii = (0.5, 1.5, 0.5)  # a, b, and c values of the radius
 
     # Create the head mesh using the defined parameters
-    create_head(bm, center, radii)
+    create_head(bm, center, head_radii)
 
     # Assign the mesh data to the bmesh
     bm.to_mesh(mesh)
@@ -129,13 +127,13 @@ def create_head_mesh():
     return mesh
 
 '''Attach the head mesh to the body'''
-def create_and_attach_head(body_obj, neck_length):
+def create_and_attach_head(body_obj, neck_length, head_radii):
     # Check if the 'Head' object already exists in the scene collection
     head_obj = bpy.data.objects.get("Head")
 
     if head_obj is None:
         # Create the head mesh only if it doesn't exist
-        head_mesh = create_head_mesh()
+        head_mesh = create_head_mesh(head_radii)
         head_obj = bpy.data.objects.new("Head", head_mesh)
         bpy.context.collection.objects.link(head_obj)
 
@@ -264,7 +262,7 @@ def create_neck(body_obj, start_center, start_radius, length, end_radius, orient
 
 '''Generate the neck for the creature based on the parameters provided. Legs have additional parameters due to the 
 nature of the leg as it has more elements'''
-def create_leg(start_point, end_point, radius, thigh_height, shin_height, foot_height, thigh_radius, shin_radius, foot_radius, num_segments=20):
+def create_leg(start_point, end_point, radius, position, thigh_height, shin_height, foot_height, thigh_radius, shin_radius, foot_radius, num_segments=20):
     # Create a new mesh and object
     mesh = bpy.data.meshes.new("AnimalLeg")
     obj = bpy.data.objects.new("AnimalLeg", mesh)
@@ -273,6 +271,9 @@ def create_leg(start_point, end_point, radius, thigh_height, shin_height, foot_h
     bpy.context.collection.objects.link(obj)
     bpy.context.view_layer.objects.active = obj
     obj.select_set(True)
+
+    # Set the position of the leg object
+    obj.location = position
 
     # Initialize a bmesh object and start with the thigh
     bm = bmesh.new()
@@ -319,11 +320,8 @@ def create_leg(start_point, end_point, radius, thigh_height, shin_height, foot_h
 
     return obj
 
-'''Visualizae the points in the body where the legs will be placed. A simple logic has been applied to position the legs at certain points
-in the body. '''
-def visualize_leg_points(body_obj, leg_distance=0.5, leg_height=0.5, thigh_height=1.5, shin_height=1.0, foot_height=0.5, thigh_radius=0.2, shin_radius=0.2, foot_radius=0.1):
+def visualize_leg_points(body_obj, num_legs=8, leg_distance=0.5, leg_height=0.5, thigh_height=1.5, shin_height=1.0, foot_height=0.5, thigh_radius=0.2, shin_radius=0.2, foot_radius=0.1):
     
-    # Takes in the attachment points as an array and each leg takes in one of the values from the array to position itself.
     attachment_points = []
 
     if body_obj is None:
@@ -334,84 +332,78 @@ def visualize_leg_points(body_obj, leg_distance=0.5, leg_height=0.5, thigh_heigh
     body_dimensions = body_obj.dimensions
     body_length = body_dimensions[0]
 
-    # Calculate the X-coordinates for the top and bottom pairs of legs
-    top_leg_x = body_length - 0.5
-    bottom_leg_x = 0 + 0.5
+    # Calculate the Z-coordinate for the legs
+    leg_z = 0 + 0.55
 
-    # Calculate the Z-coordinate for the top pair of legs
-    top_leg_z = 0 + 0.55
+    # Calculate the X-offset for legs
+    x_offset_step = body_length / ((num_legs // 2) + 1)  # Divide by 2 because each pair of legs shares the same x-offset
 
-    # Visualize attachment points and create legs for the top pair of legs (positive z-axis)
-    for i in range(2):
-        z_offset = top_leg_z if i == 0 else -top_leg_z
+    # Use the same x-offset for both odd and even numbered legs
+    x_offset = x_offset_step
 
-        # Create leg object with a unique name based on its position
-        leg_name = f"Leg_{i+1}_{'Top' if i == 0 else 'Bottom'}"  # Example: Leg_1_Top
-        leg_obj = create_leg(Vector((top_leg_x, 0, z_offset)), Vector((top_leg_x, 0, z_offset - leg_height)), radius=0.1, thigh_height=thigh_height, shin_height=shin_height, foot_height=foot_height, thigh_radius=thigh_radius, shin_radius=shin_radius, foot_radius=foot_radius)
-        leg_obj.name = leg_name  # Assign unique name to the leg object
+    # If num_legs is odd, adjust the x_offset for the last leg
+    if num_legs % 2 != 0:
+        x_offset = body_length  / (num_legs + 1)
 
-        # Position leg
-        leg_obj.location = Vector((top_leg_x, 0, z_offset))
-   
-
-        attachment_points.append(leg_obj.location)
-    
-        if i == 1:
-            leg_obj.rotation_euler = (math.radians(180), 0, math.radians(90))
-        elif i == 0:
-            leg_obj.rotation_euler = (0, 0, math.radians(90))
-
-    # Visualize attachment points and create legs for the bottom pair of legs (positive z-axis)
-    for i in range(2):
-        z_offset = top_leg_z if i == 0 else -top_leg_z
+    # Visualize attachment points and create legs
+    for i in range(num_legs):
 
         # Create leg object with a unique name based on its position
-        leg_name = f"Leg_{i+3}_{'Top' if i == 0 else 'Bottom'}"  # Example: Leg_3_Top
-        leg_obj = create_leg(Vector((bottom_leg_x, 0, z_offset)), Vector((bottom_leg_x, 0, z_offset - leg_height)), radius=0.1, thigh_height=thigh_height, shin_height=shin_height, foot_height=foot_height, thigh_radius=thigh_radius, shin_radius=shin_radius, foot_radius=foot_radius)
+        leg_name = f"Leg_{i+1}" 
+        leg_obj = create_leg(Vector((x_offset, 0, leg_z)), Vector((x_offset, 0, leg_z - leg_height)), radius=0.1, position=Vector((x_offset, 0, leg_z)), thigh_height=thigh_height, shin_height=shin_height, foot_height=foot_height, thigh_radius=thigh_radius, shin_radius=shin_radius, foot_radius=foot_radius)
         leg_obj.name = leg_name  # Assign unique name to the leg object
-        
-        # Position leg
-        leg_obj.location = Vector((bottom_leg_x, 0, z_offset))
+
+        # Set rotation for the leg
+
+        # Update x-offset for the next leg
+        if (i + 1) % 2 == 0:
+            # Even numbered legs
+            x_offset += x_offset_step
 
         attachment_points.append(leg_obj.location)
 
-        # Rotate leg by 180 degrees on the X-axis and then by 90 degrees on the Z-axis
-        if i == 1:
-            leg_obj.rotation_euler = (math.radians(180), 0, math.radians(90))
-        elif i == 0:
-            leg_obj.rotation_euler = (0, 0, math.radians(90))
-        
+    # Modify rotation for all legs after they are generated
+    for leg_obj in bpy.data.objects:
+        if leg_obj.name.startswith("Leg"):
+            if int(leg_obj.name.split("_")[1]) % 2 == 0:
+                # Even numbered legs
+                leg_obj.rotation_euler = Euler((math.radians(-90), math.radians(270), math.radians(0)), 'XYZ')
+            else:
+                # Odd numbered legs
+                leg_obj.rotation_euler = Euler((math.radians(90), math.radians(270), math.radians(0)), 'XYZ')
+
     return attachment_points
+
 
 '''Generate the wings for the creature based on the parameters provided by the user.'''
 
-def create_wing(base_center, wing_length, wing_thickness, start_width, end_width, num_verts_length=20, num_verts_width=10):
+def create_wing(body_obj, position, wing_length, wing_thickness, start_width, end_width, num_verts=20, num_verts_w=10):
     bm = bmesh.new()
     verts = []
 
-    for i in range(num_verts_length):
-        for j in range(num_verts_width):
+    for i in range(num_verts):
+        for j in range(num_verts_w):
             # Calculate the width of the wing at this position based on the start and end widths
-            width = start_width + (end_width - start_width) * (i / num_verts_length)
+            width = start_width + (end_width - start_width) * (i / num_verts)
 
-            # Calculate the position of each vertex
-            x = base_center[0] + (wing_length / num_verts_length) * i
-            z = base_center[2] + (width / num_verts_width) * j * (-1 if j % 2 == 0 else 1)  # Zigzag pattern
+            # Calculate the position of each vertex relative to the origin
+            x = (wing_length / num_verts) * i
+            z = (width / num_verts_w) * j * (-1 if j % 2 == 0 else 1)  # Zigzag pattern
 
             # Apply a sine function to the y-coordinate to create irregularities
-            y_offset = (width / 2) * math.sin((i / num_verts_length) * math.pi) * math.cos((j / num_verts_width) * math.pi)
-            y = base_center[1] + y_offset
+            y_offset = (width / 2) * math.sin((i / num_verts) * math.pi) * math.cos((j / num_verts_w) * math.pi)
 
-            vert = bm.verts.new((x, y, z))
+            # Create the vertex
+            vert = bm.verts.new((x, y_offset, z))
             verts.append(vert)
 
     # Bridge vertices to create faces
-    for i in range(num_verts_length - 1):
-        for j in range(num_verts_width - 1):
-            v1 = verts[i * num_verts_width + j]
-            v2 = verts[i * num_verts_width + (j + 1)]
-            v3 = verts[(i + 1) * num_verts_width + (j + 1)]
-            v4 = verts[(i + 1) * num_verts_width + j]
+    for i in range(num_verts - 1):
+        for j in range(num_verts_w - 1):
+            v1 = verts[i * num_verts_w + j]
+            v2 = verts[i * num_verts_w + (j + 1)]
+            v3 = verts[(i + 1) * num_verts_w + (j + 1)]
+            v4 = verts[(i + 1) * num_verts_w + j]
             face_verts = [v1, v2, v3, v4]
             bm.faces.new(face_verts)
 
@@ -424,18 +416,18 @@ def create_wing(base_center, wing_length, wing_thickness, start_width, end_width
     # Create a new object and link it to the scene
     obj = bpy.data.objects.new("Wing", mesh)
     bpy.context.collection.objects.link(obj)
-
-    # Set the location of the wing object to match the base center
-    obj.location = base_center
+    obj.parent = body_obj
+    obj.location = position
 
     # Return the object
     return obj
 
+
+
 '''Visualizae the points in the body where the wings will be placed. A simple logic has been applied to position the wings at the center
 of the body. '''
 
-def visualize_wing_points(body_obj, wing_distance=0.1, wing_height=1.0, wing_length=20.0, wing_thickness=0.1, start_width=2.0, end_width=1.0):
-    
+def visualize_wing_points(body_obj, num_wings=2, wing_distance=0.1, wing_height=1.0, wing_length=20.0, wing_thickness=0.1, start_width=2.0, end_width=1.0):
     attachment_points = []
 
     if body_obj is None:
@@ -445,34 +437,43 @@ def visualize_wing_points(body_obj, wing_distance=0.1, wing_height=1.0, wing_len
     body_dimensions = body_obj.dimensions
     body_length = body_dimensions[0]
     
-    wing_x = body_length / 1.8
-    wing_y = 0.4
-    wing_z = 0
+    wing_z = 0.55
+    wing_y = 0.55
 
-    # Global position and rotation for the wings
-    global_position = Vector((0, 0, 0))
-    global_rotation = Euler((math.radians(90), math.radians(-90), math.radians(90)))
+    # Calculate the X-offset for wings
+    x_offset_step = body_length / 2  # Divide by 2 because each pair of wings shares the same x-offset
 
-    # Create left wing
-    left_wing_name = "Left_Wing"
-    left_wing_obj = create_wing(global_position, wing_length, wing_thickness, start_width, end_width)
-    left_wing_obj.name = left_wing_name
-    left_wing_obj.rotation_euler = global_rotation
-    left_wing_obj.location = Vector((wing_x, wing_y, wing_z))
-    left_wing_obj.parent = body_obj
-    attachment_points.append(left_wing_obj.location)
+    # Use the same x-offset for both odd and even numbered wings
+    x_offset = x_offset_step
 
-    # Create right wing
-    right_wing_name = "Right_Wing"
-    right_wing_obj = create_wing(global_position, wing_length, wing_thickness, start_width, end_width)
-    right_wing_obj.name = right_wing_name
-    right_wing_obj.rotation_euler = global_rotation.copy()
-    right_wing_obj.rotation_euler[2] = math.radians(90)  # Adjust Z rotation for the mirror wing
-    right_wing_obj.rotation_euler[1] = math.radians(90)  # Adjust Z rotation for the mirror wing
-    right_wing_obj.rotation_euler[0] = math.radians(270)  # Adjust Z rotation for the mirror wing
-    right_wing_obj.location = Vector((wing_x, wing_y, wing_z))
-    right_wing_obj.parent = body_obj
-    attachment_points.append(right_wing_obj.location)
+    # Visualize attachment points and create wings
+    for i in range(num_wings):
+        # Create wing object with a unique name based on its position
+        wing_name = f"Wing_{i+1}" 
+        wing_obj = create_wing(body_obj, Vector((x_offset, wing_y, wing_z)), wing_length, wing_thickness, start_width, end_width)
+        wing_obj.name = wing_name  # Assign unique name to the wing object
+
+        # Apply rotation for odd and even numbered wings
+        if (i + 1) % 2 == 1:
+            # Odd numbered wings
+            wing_obj.rotation_euler = Euler((math.radians(90), math.radians(-90), math.radians(90)), 'XYZ')
+        else:
+            # Even numbered wings
+            wing_obj.rotation_euler = Euler((math.radians(-90), math.radians(-270), math.radians(90)), 'XYZ')
+
+        # Additional rotation for the first and last two wings when num_wings > 2
+        if num_wings > 2:
+            if i == 0 or i == 1:
+                # Front two wings
+                wing_obj.rotation_euler.rotate_axis('Y', math.radians(-40))
+            elif i == num_wings - 2 or i == num_wings - 1:
+                # Back two wings
+                wing_obj.rotation_euler.rotate_axis('Y', math.radians(40))
+
+        attachment_points.append(wing_obj.location)
+
+        # Update x-offset for the next wing
+        x_offset += wing_distance
 
     return attachment_points
 
@@ -542,7 +543,6 @@ class CreatureProperties(bpy.types.PropertyGroup):
 
     # Neck Properties
     neck_length: bpy.props.FloatProperty(name="Length", default=3.5, min=0.0)
-    neck_start_radius: bpy.props.FloatProperty(name="Start Radius", default=1.5, min=0.0)
     neck_end_radius: bpy.props.FloatProperty(name="End Radius", default=0.2, min=0.0)
     neck_wave_amplitude: bpy.props.FloatProperty(name="Wave Amplitude", default=0.1, min=0.0)
     neck_wave_frequency: bpy.props.FloatProperty(name="Wave Frequency", default=60, min=0.0)
@@ -550,13 +550,13 @@ class CreatureProperties(bpy.types.PropertyGroup):
 
     # Tail Properties
     tail_length: bpy.props.FloatProperty(name="Length", default=5.0, min=0.0)
-    tail_start_radius: bpy.props.FloatProperty(name="Start Radius", default=1.5, min=0.0)
     tail_tip_radius: bpy.props.FloatProperty(name="Tip Radius", default=0.01, min=0.0)
     tail_wave_amplitude: bpy.props.FloatProperty(name="Wave Amplitude", default=0.2, min=0.0)
     tail_wave_frequency: bpy.props.FloatProperty(name="Wave Frequency", default=50, min=0.0)
     tail_num_verts: bpy.props.IntProperty(name="Number of Vertices", default=100, min=3)
 
     # Leg Properties
+    num_legs: bpy.props.IntProperty(name = "Number of Legs", default=4, min=1)
     thigh_height: bpy.props.FloatProperty(name="Thigh Height", default=1.5, min=0.0)
     shin_height: bpy.props.FloatProperty(name="Shin Height", default=5.0, min=0.0)
     foot_height: bpy.props.FloatProperty(name="Foot Height", default=0.5, min=0.0)
@@ -564,19 +564,26 @@ class CreatureProperties(bpy.types.PropertyGroup):
     shin_radius: bpy.props.FloatProperty(name="Shin Radius", default=0.2, min=0.0)
     foot_radius: bpy.props.FloatProperty(name="Foot Radius", default=0.1, min=0.0)
     leg_distance: bpy.props.FloatProperty(name="Leg Distance", default=0.0, min=0.0)
-    leg_height: bpy.props.FloatProperty(name="Leg Height", default=0.0, min=0.0)
+    leg_height: bpy.props.FloatProperty(name="Leg Height", default=0.0, min=0.0)   
+    generate_legs: bpy.props.BoolProperty(name="Generate Legs", default=False)
 
     # Head Properties
     head_num_segments: bpy.props.IntProperty(name="Number of Segments", default=200, min=3)
-    head_num_rings: bpy.props.IntProperty(name="Number of Rings", default=100, min=3)
+    head_num_rings: bpy.props.IntProperty(name="Number of Verts", default=100, min=3)
+    head_radii_x: bpy.props.FloatProperty(name="X Radius", default=1.0, min=0.0)
+    head_radii_y: bpy.props.FloatProperty(name="Y Radius", default=1.0, min=0.0)
+    head_radii_z: bpy.props.FloatProperty(name="Z Radius", default=1.0, min=0.0)
     
     #Wing Properties
+    num_wings: bpy.props.IntProperty(name="Number of Wings", default=2, min=1)
     wing_distance: bpy.props.FloatProperty(name="Wing Distance", default=0.1, min=0.0)
-    wing_height: bpy.props.FloatProperty(name="Wing Height", default=1.0, min=0.0)
     wing_length: bpy.props.FloatProperty(name="Wing Length", default=10.0, min=0.0)
     wing_thickness: bpy.props.FloatProperty(name="Wing Thickness", default=0.1, min=0.0)
     wing_start_width: bpy.props.FloatProperty(name="Wing Start Width", default=2.0, min=0.0)
     wing_end_width: bpy.props.FloatProperty(name="Wing End Width", default=1.0, min=0.0)
+    
+    
+    generate_wings: bpy.props.BoolProperty(name="Generate Wings", default=False)
     
     #Material Property
     material_path: bpy.props.StringProperty(name="Material Path", default="", subtype='FILE_PATH')
@@ -606,7 +613,6 @@ class CreaturePropertiesPanel(bpy.types.Panel):
         # Neck Properties
         layout.label(text="Neck Properties:")
         layout.prop(props, "neck_length")
-        layout.prop(props, "neck_start_radius")
         layout.prop(props, "neck_end_radius")
         layout.prop(props, "neck_wave_amplitude")
         layout.prop(props, "neck_wave_frequency")
@@ -614,7 +620,6 @@ class CreaturePropertiesPanel(bpy.types.Panel):
 
         # Tail Properties
         layout.label(text="Tail Properties:")
-        layout.prop(props, "tail_start_radius")
         layout.prop(props, "tail_length")
         layout.prop(props, "tail_tip_radius")
         layout.prop(props, "tail_wave_amplitude")
@@ -622,23 +627,32 @@ class CreaturePropertiesPanel(bpy.types.Panel):
         layout.prop(props, "tail_num_verts")
 
         # Leg Properties
+        
         layout.label(text="Leg Properties:")
+        layout.prop(props, "generate_legs", text="Generate Legs")
+        layout.prop(props, "num_legs")
         layout.prop(props, "thigh_height")
         layout.prop(props, "shin_height")
         layout.prop(props, "foot_height")
         layout.prop(props, "thigh_radius")
         layout.prop(props, "shin_radius")
         layout.prop(props, "foot_radius")
+        layout.prop(props, "num_segments")
 
         # Head Properties
         layout.label(text="Head Properties:")
         layout.prop(props, "head_num_segments")
         layout.prop(props, "head_num_rings")
+        layout.prop(props, "head_radii_x")
+        layout.prop(props, "head_radii_y")
+        layout.prop(props, "head_radii_z")
         
         #Wing Properties
+        
         layout.label(text="Wing Properties:")
+        layout.prop(props, "generate_wings", text="Generate Wings")
+        layout.prop(props, "num_wings")
         layout.prop(props, "wing_distance")
-        layout.prop(props, "wing_height")
         layout.prop(props, "wing_length")
         layout.prop(props, "wing_thickness")
         layout.prop(props, "wing_start_width")
@@ -696,48 +710,50 @@ class OBJECT_OT_GenerateCreature(bpy.types.Operator):
             num_verts=props.tail_num_verts
         )
         
-        # Generate the legs
-        thigh_height = props.thigh_height
-        shin_height = props.shin_height
-        foot_height = props.foot_height
-        thigh_radius = props.thigh_radius
-        shin_radius = props.shin_radius
-        foot_radius = props.foot_radius
-        leg_distance = 0.0  # Distance of the legs from the body's central axis along the Z-axis
-        leg_height = 0.0
+        if props.generate_legs:
+            thigh_height = props.thigh_height
+            shin_height = props.shin_height
+            foot_height = props.foot_height
+            thigh_radius = props.thigh_radius
+            shin_radius = props.shin_radius
+            foot_radius = props.foot_radius
+            leg_distance = 0.0  # Distance of the legs from the body's central axis along the Z-axis
+            leg_height = 0.0
 
-        attachment_points = visualize_leg_points(
-            body_obj,
-            leg_distance=leg_distance,
-            leg_height=0.1,
-            thigh_height=thigh_height,
-            shin_height=shin_height,
-            foot_height=foot_height,
-            thigh_radius=thigh_radius,
-            shin_radius=shin_radius,
-            foot_radius=foot_radius
+            attachment_points = visualize_leg_points(
+                body_obj,
+                num_legs=props.num_legs,
+                leg_distance=leg_distance,
+                leg_height=0.1,
+                thigh_height=thigh_height,
+                shin_height=shin_height,
+                foot_height=foot_height,
+                thigh_radius=thigh_radius,
+                shin_radius=shin_radius,
+                foot_radius=foot_radius,
         )
 
         # Attach head to the body
-        head_obj = create_and_attach_head(body_obj, props.body_length + props.neck_length)
+        head_obj = create_and_attach_head(body_obj, props.body_length + props.neck_length, 
+                                           (props.head_radii_x, props.head_radii_y, props.head_radii_z))
         
-        wing_attachment_points = visualize_wing_points(body_obj, 
-            wing_distance= props.wing_distance, 
-            wing_height= props.wing_height, 
-            wing_length= props.wing_length, 
-            wing_thickness= props.wing_thickness, 
-            start_width = props.wing_start_width, 
-            end_width = props.wing_end_width
-        )
+        if props.generate_wings:
+            wing_attachment_points = visualize_wing_points(body_obj,
+                num_wings=props.num_wings, 
+                wing_distance= props.wing_distance, 
+                wing_length= props.wing_length, 
+                wing_thickness= props.wing_thickness, 
+                start_width = props.wing_start_width, 
+                end_width = props.wing_end_width
+            )
 
         # Rotate objects as needed
         body_obj.rotation_euler = (math.radians(-90), 0, 0)
-        neck_obj.rotation_euler = (math.radians(180), 0, 0)
+        neck_obj.rotation_euler = (math.radians(90), 0, 0)
         tail_obj.rotation_euler = (math.radians(-180), 0, 0)
         head_obj.rotation_euler = (0, 0, math.radians(90))
 
-        bpy.context.view_layer.objects.active = body_obj
-        bpy.ops.transform.rotate(value=-math.radians(90), orient_axis='X')
+        
         
         material_path = bpy.path.abspath(props.material_path)
         material = create_painted_texture_material(material_path)
